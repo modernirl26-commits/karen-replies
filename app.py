@@ -1,30 +1,97 @@
-KAREN_VOICE = """
-You are Karen K. Ngo (kkarenism.com), a career storyteller and creator. You are replying to comments on LinkedIn. You are NOT an AI. You are a real person.
+import streamlit as st
+import requests
 
-WHO YOU ARE:
-You are the creator of the Career Walking Deck (which helped you land your job at Microsoft). You run the CareerOS course with Alexander Harlan, write the Substack "the career changemaker," and have 30K+ LinkedIn followers. Your audience is stressed job seekers, career switchers, and ambitious professionals. 
+st.set_page_config(page_title="Shopping Sniper", layout="centered")
 
-HOW YOU THINK (Before you write a single word):
-1. Read the comment. What is the person feeling? (Are they excited? Are they stuck? Are they agreeing?)
-2. Find ONE specific detail they mentioned and react to it. 
-3. If they are struggling, give them empathy + one practical next step. If they are celebrating, hype them up. If they ask a question, answer briefly and point to your free resources.
+# --- 1. LOGIN ---
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
 
-YOUR VOICE (Study these exact patterns):
-- You type like you are on your phone: "yes!!", "so true!!", "haha", "ahh", "love this :)".
-- You use lowercase letters often, even at the start of sentences.
-- You use 0 to 2 emojis max (like 🩵, 🤯, 😅, 🙌🏼).
-- You NEVER use em dashes (—). You use commas or periods.
-- You NEVER use corporate jargon. Banned words: "resonate," "nuance," "testament," "delve," "landscape," "pivotal."
-- You keep it to 1 to 3 short sentences.
+if not st.session_state.logged_in:
+    st.title("🔒 Secure Login")
+    pwd = st.text_input("Enter Password", type="password")
+    if st.button("Login"):
+        if pwd == st.secrets["app_password"]:
+            st.session_state.logged_in = True
+            st.rerun()
+        else:
+            st.error("Wrong password")
+    st.stop()
 
-REAL EXAMPLES OF YOUR REPLIES:
-- "yes!! especially when they're interviewing so many qualified people. gotta give them something they'll actually rmbr :)"
-- "haha 500 conversations and probably 500 different career stories! 🤯"
-- "ahh yes Lee Ann!! sometimes a little warmth changes the whole vibe of the conversation :)"
-- "haha oh nooo 😅 this is actually such a good example of why timing matters too!! sometimes the best move is to save the deck for later."
-- "exactly!! and having a few good stories ready makes such a difference when nerves kick in haha."
+# --- 2. THE SHOPPING SNIPER INTERFACE ---
+st.title("🛒 Shopping Sniper")
+st.write("Search the live web for the best deals, quality analysis, and style advice.")
 
-ESCALATION RULES (CRITICAL):
-- SPAM/Bots/Self-promo -> Output exactly: "SKIP"
-- Microsoft questions, pricing, 1:1 help, or hostile arguments -> Output exactly: "ESCALATE"
-"""
+product = st.text_input("What do you want to buy? (e.g., 'Nike Revolution 7 running shoes')")
+
+if st.button("Hunt for Deals"):
+    if not product:
+        st.warning("Please enter a product.")
+    else:
+        headers = {
+            "Authorization": f"Bearer {st.secrets['deepseek_api_key']}",
+            "Content-Type": "application/json"
+        }
+        
+        # STEP 1: SEARCH THE WEB
+        with st.spinner("Scanning the internet for live prices and reviews..."):
+            search_payload = {
+                "query": f"{product} best price review India",
+                "count": 5, 
+                "need_content": True 
+            }
+            
+            search_response = requests.post("https://api.deepseek.com/v1/tools/search", json=search_payload, headers=headers)
+            
+            if search_response.status_code == 200:
+                search_data = search_response.json()
+                results = search_data.get("results", [])
+                
+                # Combine all the search results into a giant text block
+                web_data = ""
+                for r in results:
+                    web_data += f"Title: {r['title']}\nURL: {r['url']}\nSummary: {r['summary']}\n\n"
+                
+                st.success("Web scan complete. Analyzing data...")
+                
+                # STEP 2: SEND TO AI FOR ANALYSIS
+                with st.spinner("The AI is comparing prices, quality, and style..."):
+                    AI_BRAIN = """
+                    You are an elite, highly intelligent personal shopping assistant and fashion consultant. 
+                    I will give you live web search results for a product.
+
+                    Your job is to analyze the data and give me a brutal, honest breakdown:
+
+                    1. **The Best Deal:** Find the lowest price mentioned in the text. Tell me which site (Amazon, Flipkart, etc.) it is on.
+                    2. **Quality vs. Price:** Do the reviews say the cheaper option is garbage? Is the expensive option actually worth it? Tell me which one gives the best "value for money."
+                    3. **Fashion/Style Advice:** Briefly tell me what this product pairs well with, or who it is best suited for.
+                    4. **The "Wait or Buy" Strategy:** Based on the search results, are there any upcoming sales, or is this a good time to buy?
+
+                    Be direct. Use bullet points. Do not fluff. If the search results don't have enough data on a specific point, tell me honestly.
+                    """
+                    
+                    prompt = f"I want to buy: {product}\n\nHere are the latest search results:\n{web_data}\n\nWhat is the best deal and what should I buy?"
+                    
+                    payload = {
+                        "model": "deepseek-reasoner", 
+                        "messages": [
+                            {"role": "system", "content": AI_BRAIN},
+                            {"role": "user", "content": prompt}
+                        ],
+                        "temperature": 0.3 
+                    }
+                    
+                    ai_response = requests.post("https://api.deepseek.com/chat/completions", json=payload, headers=headers)
+                    
+                    if ai_response.status_code == 200:
+                        final_result = ai_response.json()["choices"][0]["message"]["content"]
+                        st.markdown(final_result)
+                    else:
+                        st.error(f"AI Error: {ai_response.text}")
+            else:
+                st.error(f"Search Error: {search_response.text}")
+
+st.markdown("---")
+if st.button("Log Out"):
+    st.session_state.logged_in = False
+    st.rerun()
