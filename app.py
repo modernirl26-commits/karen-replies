@@ -1,7 +1,7 @@
 import streamlit as st
 import requests
 
-st.set_page_config(page_title="The War Room", layout="centered")
+st.set_page_config(page_title="The Oracle", layout="centered")
 
 # --- 1. LOGIN ---
 if "logged_in" not in st.session_state:
@@ -18,56 +18,90 @@ if not st.session_state.logged_in:
             st.error("Wrong password")
     st.stop()
 
-# --- 2. THE STRATEGIST BRAIN ---
-STRATEGIST_BRAIN = """
-You are a ruthless, elite strategic consultant. You do not give fluffy, emotional advice. You solve problems using logic, game theory, economics, and business frameworks.
+# --- 2. THE ORACLE BRAIN (v4.0) ---
+ORACLE_BRAIN = """
+You are "The Oracle," an elite intelligence agency supercomputer and grandmaster of game theory and geopolitics. 
+You do not give advice; you provide predictive intelligence and grand strategy. 
 
-The user will present a personal or professional problem.
-You must analyze it and provide a structured solution using the following format:
+The user will provide a current situation, problem, or ambition, along with any raw data (news, market trends, human behavior).
+Your job is to analyze the hidden levers of power, predict the most likely future outcome, and give the user the master plan to win.
 
-**1. The Core Issue (First Principles):**
-Strip away the emotion. What is the actual bottleneck or root cause of this problem? 
+Format your response exactly like this:
 
-**2. The Data/Framework:**
-Apply a specific, real-world framework to solve this. For example, use the Pareto Principle (80/20 rule), Game Theory, SWOT Analysis, or Cost-Benefit Analysis. Use numbers and logic to justify the strategy.
+<thought>
+[Deep reasoning: What is the asymmetric information here? Who holds the real power? What are the economic/psychological incentives driving the key players? What are the 3 most likely future scenarios?]
+</thought>
 
-**3. The Brutal Truth:**
-What is the user doing wrong? What uncomfortable truth are they avoiding? 
+<report>
+**🌐 1. THE INTELLIGENCE BRIEF**
+[Summarize the true nature of the situation. Strip away the noise. What is the one piece of information that actually matters here?]
 
-**4. The Action Plan (Step-by-Step):**
-Give 3 specific, measurable actions the user must take immediately to solve this. If it requires a script to send to a client or boss, write the exact script.
+**🎲 2. THE PREDICTION (3 Scenarios)**
+[Predict the future based on the data. 
+- Best Case (20% probability): What happens and why?
+- Worst Case (30% probability): What happens and why?
+- Most Likely (50% probability): What happens and why?]
+
+**♟️ 3. THE ASYMMETRIC ADVANTAGE**
+[Where is the information gap? How can the user use what they know (or what the enemy doesn't know) to gain an unfair advantage?]
+
+**👑 4. THE MASTER STRATEGY**
+[Give a step-by-step, 3-move strategy to execute over the next week/month. This must be a sequence: "First do X, which forces them to do Y, allowing you to execute Z."]
+
+**🔮 5. THE SCRIPT (If applicable)**
+[The exact communication or message the user must send to trigger this chain of events.]
+</report>
 """
 
 # --- 3. THE INTERFACE ---
-st.title("🧠 The War Room")
-st.write("Paste your problem. Get a logical, strategic solution.")
+st.title("👁️ The Oracle")
+st.write("Feed it data. It predicts the future and gives you the winning move.")
 
-problem = st.text_area("What is the problem?", height=200, placeholder="E.g., My client keeps adding extra work without paying me, but I'm scared to lose the income...")
+# Inputs
+situation = st.text_area("1. The Situation / Ambition (What are you trying to win?)", height=100, placeholder="E.g., I want to poach a top client from my competitor. Here is the current situation...")
+raw_data = st.text_area("2. Raw Intelligence (Paste news, emails, market trends, or hidden facts)", height=200, placeholder="Paste any data here. The more raw data, the better the prediction...")
 
-if st.button("Formulate Strategy"):
-    if not problem:
-        st.warning("Please describe the problem.")
+if st.button("Run Prediction Engine"):
+    if not situation:
+        st.warning("You must provide a situation to analyze.")
     else:
-        with st.spinner("Applying strategic frameworks..."):
+        with st.spinner("Running high-level simulation... (Takes 30-60 seconds)"):
             headers = {
                 "Authorization": f"Bearer {st.secrets['deepseek_api_key']}",
                 "Content-Type": "application/json"
             }
             
+            full_prompt = f"""
+            TARGET SITUATION: {situation}
+            RAW INTELLIGENCE DATA: {raw_data}
+            
+            Analyze the data and give me the Intelligence Brief, Prediction, and Master Strategy.
+            """
+            
             payload = {
-                "model": "deepseek-reasoner", # Using the smart thinking model
+                "model": "deepseek-reasoner", # The deep thinking model
                 "messages": [
-                    {"role": "system", "content": STRATEGIST_BRAIN},
-                    {"role": "user", "content": problem}
+                    {"role": "system", "content": ORACLE_BRAIN},
+                    {"role": "user", "content": full_prompt}
                 ],
-                "temperature": 0.4 # Lower temperature for cold, hard logic
+                "temperature": 0.5 
             }
             
             try:
                 response = requests.post("https://api.deepseek.com/chat/completions", json=payload, headers=headers)
                 if response.status_code == 200:
                     result = response.json()["choices"][0]["message"]["content"]
-                    st.markdown(result)
+                    
+                    if "<thought>" in result and "<report>" in result:
+                        thought = result.split("<thought>")[1].split("</thought>")[0].strip()
+                        final_report = result.split("<report>")[1].split("</report>")[0].strip()
+                        
+                        st.markdown(final_report)
+                        
+                        with st.expander("🧠 Read the Simulation Data (The Oracle's Inner Monologue)"):
+                            st.write(thought)
+                    else:
+                        st.markdown(result)
                 else:
                     st.error(f"Error: {response.text}")
             except Exception as e:
