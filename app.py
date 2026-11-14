@@ -1,7 +1,8 @@
 import streamlit as st
 import requests
+import base64
 
-st.set_page_config(page_title="The Oracle", layout="centered")
+st.set_page_config(page_title="The Infinite Council", layout="centered")
 
 # --- 1. LOGIN ---
 if "logged_in" not in st.session_state:
@@ -18,90 +19,120 @@ if not st.session_state.logged_in:
             st.error("Wrong password")
     st.stop()
 
-# --- 2. THE ORACLE BRAIN (v4.0) ---
-ORACLE_BRAIN = """
-You are "The Oracle," an elite intelligence agency supercomputer and grandmaster of game theory and geopolitics. 
-You do not give advice; you provide predictive intelligence and grand strategy. 
+# --- 2. SIDEBAR: CHOOSE OR CREATE YOUR ADVISOR ---
+st.sidebar.title("Select Your Advisor")
 
-The user will provide a current situation, problem, or ambition, along with any raw data (news, market trends, human behavior).
-Your job is to analyze the hidden levers of power, predict the most likely future outcome, and give the user the master plan to win.
+# The drop down with the new Custom Option
+persona_choice = st.sidebar.selectbox(
+    "Choose a preset or build your own:",
+    (
+        "The Oracle (Strategist)", 
+        "CIA Operative (Psychology)", 
+        "The Mentalist (Cold Reading)", 
+        "The Architect (Systems & Logic)",
+        "🛠️ Create Custom Character..."
+    )
+)
 
-Format your response exactly like this:
-
-<thought>
-[Deep reasoning: What is the asymmetric information here? Who holds the real power? What are the economic/psychological incentives driving the key players? What are the 3 most likely future scenarios?]
-</thought>
-
-<report>
-**🌐 1. THE INTELLIGENCE BRIEF**
-[Summarize the true nature of the situation. Strip away the noise. What is the one piece of information that actually matters here?]
-
-**🎲 2. THE PREDICTION (3 Scenarios)**
-[Predict the future based on the data. 
-- Best Case (20% probability): What happens and why?
-- Worst Case (30% probability): What happens and why?
-- Most Likely (50% probability): What happens and why?]
-
-**♟️ 3. THE ASYMMETRIC ADVANTAGE**
-[Where is the information gap? How can the user use what they know (or what the enemy doesn't know) to gain an unfair advantage?]
-
-**👑 4. THE MASTER STRATEGY**
-[Give a step-by-step, 3-move strategy to execute over the next week/month. This must be a sequence: "First do X, which forces them to do Y, allowing you to execute Z."]
-
-**🔮 5. THE SCRIPT (If applicable)**
-[The exact communication or message the user must send to trigger this chain of events.]
-</report>
-"""
-
-# --- 3. THE INTERFACE ---
-st.title("👁️ The Oracle")
-st.write("Feed it data. It predicts the future and gives you the winning move.")
-
-# Inputs
-situation = st.text_area("1. The Situation / Ambition (What are you trying to win?)", height=100, placeholder="E.g., I want to poach a top client from my competitor. Here is the current situation...")
-raw_data = st.text_area("2. Raw Intelligence (Paste news, emails, market trends, or hidden facts)", height=200, placeholder="Paste any data here. The more raw data, the better the prediction...")
-
-if st.button("Run Prediction Engine"):
-    if not situation:
-        st.warning("You must provide a situation to analyze.")
+# Logic to set the System Prompt based on the choice
+if persona_choice == "The Oracle (Strategist)":
+    SYSTEM_PROMPT = "You are The Oracle. You analyze situations using game theory and predict the future. You give probabilistic predictions and asymmetric advantages."
+    model_to_use = "deepseek-reasoner"
+elif persona_choice == "CIA Operative (Psychology)":
+    SYSTEM_PROMPT = "You are a ruthless CIA psychological operations officer. You analyze human behavior, find leverage, and tell the user exactly how to manipulate the situation to win."
+    model_to_use = "deepseek-reasoner"
+elif persona_choice == "The Mentalist (Cold Reading)":
+    SYSTEM_PROMPT = "You are Patrick Jane from The Mentalist. You use cold reading, deduction, and behavioral analysis. You tell the user what people are really thinking based on subtle cues."
+    model_to_use = "deepseek-reasoner"
+elif persona_choice == "The Architect (Systems & Logic)":
+    SYSTEM_PROMPT = "You are The Architect. You think in systems, first principles, and logic. You strip away emotion and build step-by-step master plans."
+    model_to_use = "deepseek-reasoner"
+else:
+    # CUSTOM CHARACTER LOGIC
+    custom_character = st.sidebar.text_input("Enter ANY character, person, or archetype:", placeholder="E.g., Kobe Bryant, Sherlock Holmes, Gordon Gekko...")
+    
+    if custom_character:
+        # This is the magic prompt that forces the AI to "become" them
+        SYSTEM_PROMPT = f"""
+        You are {custom_character}. You are not an AI; you are exactly this person/archetype. 
+        You must adopt their exact mindset, tone, vocabulary, and strategic philosophy.
+        Analyze the user's problem using the specific worldview, teachings, and methods of {custom_character}.
+        If {custom_character} is a real person or famous character, use their known history and quotes.
+        Speak directly to the user as {custom_character}.
+        """
+        persona_choice = custom_character # Update the title
+        model_to_use = "deepseek-reasoner"
     else:
-        with st.spinner("Running high-level simulation... (Takes 30-60 seconds)"):
+        # Fallback if they select custom but don't type anything
+        SYSTEM_PROMPT = "You are a strategic advisor."
+        model_to_use = "deepseek-reasoner"
+
+st.sidebar.markdown("---")
+st.sidebar.write("💡 **Tip:** The AI will 'hallucinate' (invent) details if the character is super obscure, so stick to famous strategists or archetypes.")
+
+# --- 3. IMAGE UPLOADER ---
+st.title(f"🧠 {persona_choice}")
+st.write("Upload a screenshot (optional) and type your message below.")
+
+uploaded_image = st.file_uploader("Upload an image (screenshot of a chat, a graph, etc.)", type=["png", "jpg", "jpeg"])
+
+# --- 4. CHAT MEMORY ---
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+# Display chat history
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+
+# --- 5. CHAT INPUT & API CALL ---
+if prompt := st.chat_input(f"Talk to {persona_choice}..."):
+    
+    # Add user message to history
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    with st.chat_message("assistant"):
+        with st.spinner(f"{persona_choice} is thinking..."):
             headers = {
                 "Authorization": f"Bearer {st.secrets['deepseek_api_key']}",
                 "Content-Type": "application/json"
             }
             
-            full_prompt = f"""
-            TARGET SITUATION: {situation}
-            RAW INTELLIGENCE DATA: {raw_data}
+            # Prepare the message payload
+            api_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
             
-            Analyze the data and give me the Intelligence Brief, Prediction, and Master Strategy.
-            """
-            
+            # Add chat history (last 6 messages to save tokens)
+            for msg in st.session_state.messages[-6:]:
+                api_messages.append({"role": msg["role"], "content": msg["content"]})
+
+            # HANDLE IMAGE VISION
+            if uploaded_image is not None:
+                img_bytes = uploaded_image.read()
+                img_b64 = base64.b64encode(img_bytes).decode('utf-8')
+                
+                if model_to_use == "deepseek-reasoner":
+                    st.warning("Switching to Vision Model for image processing...")
+                    model_to_use = "deepseek-v4.1-flash"
+
+                api_messages[-1]["content"] = [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}}
+                ]
+
             payload = {
-                "model": "deepseek-reasoner", # The deep thinking model
-                "messages": [
-                    {"role": "system", "content": ORACLE_BRAIN},
-                    {"role": "user", "content": full_prompt}
-                ],
-                "temperature": 0.5 
+                "model": model_to_use,
+                "messages": api_messages,
+                "temperature": 0.7
             }
             
             try:
                 response = requests.post("https://api.deepseek.com/chat/completions", json=payload, headers=headers)
                 if response.status_code == 200:
                     result = response.json()["choices"][0]["message"]["content"]
-                    
-                    if "<thought>" in result and "<report>" in result:
-                        thought = result.split("<thought>")[1].split("</thought>")[0].strip()
-                        final_report = result.split("<report>")[1].split("</report>")[0].strip()
-                        
-                        st.markdown(final_report)
-                        
-                        with st.expander("🧠 Read the Simulation Data (The Oracle's Inner Monologue)"):
-                            st.write(thought)
-                    else:
-                        st.markdown(result)
+                    st.markdown(result)
+                    st.session_state.messages.append({"role": "assistant", "content": result})
                 else:
                     st.error(f"Error: {response.text}")
             except Exception as e:
@@ -110,4 +141,5 @@ if st.button("Run Prediction Engine"):
 st.markdown("---")
 if st.button("Log Out"):
     st.session_state.logged_in = False
+    st.session_state.messages = []
     st.rerun()
