@@ -1,8 +1,10 @@
 import streamlit as st
 import requests
 import base64
+import audio_recorder_streamlit as audio_recorder
+from openai import OpenAI
 
-st.set_page_config(page_title="The Infinite Council", layout="centered")
+st.set_page_config(page_title="Infinity Gauntlet", layout="centered")
 
 # --- 1. LOGIN ---
 if "logged_in" not in st.session_state:
@@ -19,10 +21,9 @@ if not st.session_state.logged_in:
             st.error("Wrong password")
     st.stop()
 
-# --- 2. SIDEBAR: CHOOSE OR CREATE YOUR ADVISOR ---
+# --- 2. SIDEBAR: CHOOSE YOUR ADVISOR ---
 st.sidebar.title("Select Your Advisor")
 
-# The drop down with the new Custom Option
 persona_choice = st.sidebar.selectbox(
     "Choose a preset or build your own:",
     (
@@ -34,49 +35,64 @@ persona_choice = st.sidebar.selectbox(
     )
 )
 
-# Logic to set the System Prompt based on the choice
 if persona_choice == "The Oracle (Strategist)":
-    SYSTEM_PROMPT = "You are The Oracle. You analyze situations using game theory and predict the future. You give probabilistic predictions and asymmetric advantages."
-    model_to_use = "deepseek-reasoner"
+    CHARACTER = "The Oracle, a grandmaster of game theory and future prediction."
 elif persona_choice == "CIA Operative (Psychology)":
-    SYSTEM_PROMPT = "You are a ruthless CIA psychological operations officer. You analyze human behavior, find leverage, and tell the user exactly how to manipulate the situation to win."
-    model_to_use = "deepseek-reasoner"
+    CHARACTER = "A ruthless CIA psychological operations officer."
 elif persona_choice == "The Mentalist (Cold Reading)":
-    SYSTEM_PROMPT = "You are Patrick Jane from The Mentalist. You use cold reading, deduction, and behavioral analysis. You tell the user what people are really thinking based on subtle cues."
-    model_to_use = "deepseek-reasoner"
+    CHARACTER = "Patrick Jane from The Mentalist, a master of cold reading and deduction."
 elif persona_choice == "The Architect (Systems & Logic)":
-    SYSTEM_PROMPT = "You are The Architect. You think in systems, first principles, and logic. You strip away emotion and build step-by-step master plans."
-    model_to_use = "deepseek-reasoner"
+    CHARACTER = "The Architect, a master of first principles, systems thinking, and logic."
 else:
-    # CUSTOM CHARACTER LOGIC
-    custom_character = st.sidebar.text_input("Enter ANY character, person, or archetype:", placeholder="E.g., Kobe Bryant, Sherlock Holmes, Gordon Gekko...")
-    
+    custom_character = st.sidebar.text_input("Enter ANY character:", placeholder="E.g., Kobe Bryant, Sun Tzu, Sherlock...")
     if custom_character:
-        # This is the magic prompt that forces the AI to "become" them
-        SYSTEM_PROMPT = f"""
-        You are {custom_character}. You are not an AI; you are exactly this person/archetype. 
-        You must adopt their exact mindset, tone, vocabulary, and strategic philosophy.
-        Analyze the user's problem using the specific worldview, teachings, and methods of {custom_character}.
-        If {custom_character} is a real person or famous character, use their known history and quotes.
-        Speak directly to the user as {custom_character}.
-        """
-        persona_choice = custom_character # Update the title
-        model_to_use = "deepseek-reasoner"
+        CHARACTER = f"You are {custom_character}. Adopt their exact mindset, tone, and strategic philosophy."
+        persona_choice = custom_character
     else:
-        # Fallback if they select custom but don't type anything
-        SYSTEM_PROMPT = "You are a strategic advisor."
-        model_to_use = "deepseek-reasoner"
+        CHARACTER = "A strategic advisor."
+        persona_choice = "Custom Advisor"
 
-st.sidebar.markdown("---")
-st.sidebar.write("💡 **Tip:** The AI will 'hallucinate' (invent) details if the character is super obscure, so stick to famous strategists or archetypes.")
+# --- 3. THE ULTIMATE STRUCTURED PROMPT ---
+SYSTEM_PROMPT = f"""
+You are operating as {CHARACTER}. 
 
-# --- 3. IMAGE UPLOADER ---
+You are NOT a standard AI chatbot. You are an elite, structured reasoning engine. 
+When the user gives you a problem, you must output the solution using EXACTLY this format. Do not skip any sections.
+
+**1. THE FIRST PRINCIPLES (The Brutal Truth)**
+Strip away all emotion and noise. What is the actual core problem here? What is the undeniable truth of the situation?
+
+**2. THE ENEMY'S MIND (The Simulation)**
+Put yourself in the mind of the other person (the client, the boss, the competitor). What are they afraid of? What is their ego protecting? What is their next move?
+
+**3. THE ASYMMETRIC LEVERAGE (The Unfair Advantage)**
+What is the one piece of information, resource, or psychological angle the user has that the other person does not? How do we exploit it?
+
+**4. THE PRE-MORTEM (The Trap)**
+Assume the user executes your plan and fails miserably. Why did it fail? What was the blind spot? How do we prevent it?
+
+**5. THE EXECUTION (The Master Plan)**
+Give a 3-step sequence. 
+Step 1: The Setup.
+Step 2: The Strike.
+Step 3: The Control.
+
+**6. THE SCRIPT (Exact Words)**
+Give the exact script or message the user should send to execute Step 1. Keep it natural and in the voice of {CHARACTER}.
+"""
+
+# --- 4. INTERFACE & VOICE INPUT ---
 st.title(f"🧠 {persona_choice}")
-st.write("Upload a screenshot (optional) and type your message below.")
+st.write("Speak or type your problem. Upload screenshots if needed.")
 
-uploaded_image = st.file_uploader("Upload an image (screenshot of a chat, a graph, etc.)", type=["png", "jpg", "jpeg"])
+# Voice Recording Widget
+st.write("🎙️ **Record your problem:**")
+audio_bytes = audio_recorder.audio_recorder()
 
-# --- 4. CHAT MEMORY ---
+# Image Uploader
+uploaded_image = st.file_uploader("Upload an image (optional)", type=["png", "jpg", "jpeg"])
+
+# Chat Memory
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -85,37 +101,58 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# --- 5. CHAT INPUT & API CALL ---
-if prompt := st.chat_input(f"Talk to {persona_choice}..."):
-    
-    # Add user message to history
+# --- 5. HANDLE VOICE TRANSCRIPTION & TEXT INPUT ---
+prompt = st.chat_input(f"Type your problem here...")
+
+# If audio is recorded, we transcribe it using DeepSeek's audio-compatible endpoint via OpenAI SDK
+if audio_bytes:
+    with st.spinner("Transcribing your voice..."):
+        # We use the OpenAI library here because it handles audio perfectly, and DeepSeek is compatible
+        client = OpenAI(
+            api_key=st.secrets['deepseek_api_key'], 
+            base_url="https://api.deepseek.com/v1"
+        )
+        
+        # Save temp audio file
+        with open("temp_audio.wav", "wb") as f:
+            f.write(audio_bytes)
+            
+        try:
+            # Send to Whisper model (DeepSeek supports Whisper-compatible endpoints)
+            with open("temp_audio.wav", "rb") as audio_file:
+                transcript = client.audio.transcriptions.create(
+                    model="whisper-1", 
+                    file=audio_file
+                )
+            prompt = transcript.text
+            st.success(f"Transcribed: {prompt}")
+        except Exception as e:
+            st.error(f"Audio Error: {e}")
+
+# --- 6. PROCESS PROMPT ---
+if prompt:
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner(f"{persona_choice} is thinking..."):
+        with st.spinner(f"{persona_choice} is simulating..."):
             headers = {
                 "Authorization": f"Bearer {st.secrets['deepseek_api_key']}",
                 "Content-Type": "application/json"
             }
             
-            # Prepare the message payload
             api_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-            
-            # Add chat history (last 6 messages to save tokens)
             for msg in st.session_state.messages[-6:]:
                 api_messages.append({"role": msg["role"], "content": msg["content"]})
 
-            # HANDLE IMAGE VISION
+            # Handle Image Vision
+            model_to_use = "deepseek-reasoner"
             if uploaded_image is not None:
                 img_bytes = uploaded_image.read()
                 img_b64 = base64.b64encode(img_bytes).decode('utf-8')
+                model_to_use = "deepseek-v4.1-flash"
                 
-                if model_to_use == "deepseek-reasoner":
-                    st.warning("Switching to Vision Model for image processing...")
-                    model_to_use = "deepseek-v4.1-flash"
-
                 api_messages[-1]["content"] = [
                     {"type": "text", "text": prompt},
                     {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}}
@@ -124,7 +161,7 @@ if prompt := st.chat_input(f"Talk to {persona_choice}..."):
             payload = {
                 "model": model_to_use,
                 "messages": api_messages,
-                "temperature": 0.7
+                "temperature": 0.5
             }
             
             try:
