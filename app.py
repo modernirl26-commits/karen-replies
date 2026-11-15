@@ -1,145 +1,213 @@
 import streamlit as st
 import requests
 import base64
-import audio_recorder_streamlit as audio_recorder
-from openai import OpenAI
+import json
+import os
+import uuid
 
-st.set_page_config(page_title="Infinity Gauntlet", layout="centered")
+# --- 1. PAGE CONFIG & THE GRIMOIRE CSS ---
+st.set_page_config(page_title="The Grimoire", layout="wide", page_icon="📖")
 
-# --- 1. LOGIN ---
+# Custom CSS for the Vintage Book Look
+st.markdown("""
+    <style>
+    /* Dark Parchment background */
+    .stApp {
+        background-color: #1a1a1a;
+        color: #d4cbb3;
+    }
+    /* Sidebar styling */
+    [data-testid="stSidebar"] {
+        background-color: #0d0d0d;
+        border-right: 1px solid #333;
+    }
+    /* Chat bubbles */
+    .stChatMessage {
+        background-color: transparent !important;
+        border-bottom: 1px solid #333;
+        font-family: 'Georgia', serif;
+    }
+    /* Input box */
+    .stChatInput {
+        background-color: #262626;
+        color: #d4cbb3;
+    }
+    /* Headers */
+    h1, h2, h3 {
+        font-family: 'Georgia', serif;
+        color: #b89b5e;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# --- 2. LOGIN ---
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
 if not st.session_state.logged_in:
-    st.title("🔒 Secure Login")
-    pwd = st.text_input("Enter Password", type="password")
-    if st.button("Login"):
+    st.title("📖 The Grimoire")
+    st.write("*A secret text for those who control the board.*")
+    pwd = st.text_input("Speak the passphrase:", type="password")
+    if st.button("Enter"):
         if pwd == st.secrets["app_password"]:
             st.session_state.logged_in = True
             st.rerun()
         else:
-            st.error("Wrong password")
+            st.error("Access Denied.")
     st.stop()
 
-# --- 2. SIDEBAR: CHOOSE YOUR ADVISOR ---
-st.sidebar.title("Select Your Advisor")
+# --- 3. DATA STORAGE ---
+HISTORY_FILE = "chat_history.json"
+def load_history():
+    if os.path.exists(HISTORY_FILE):
+        with open(HISTORY_FILE, "r") as f: return json.load(f)
+    return {}
+def save_history(history):
+    with open(HISTORY_FILE, "w") as f: json.dump(history, f)
 
-persona_choice = st.sidebar.selectbox(
-    "Choose a preset or build your own:",
-    (
-        "The Oracle (Strategist)", 
-        "CIA Operative (Psychology)", 
-        "The Mentalist (Cold Reading)", 
-        "The Architect (Systems & Logic)",
-        "🛠️ Create Custom Character..."
-    )
-)
+if "history" not in st.session_state:
+    st.session_state.history = load_history()
+if "current_chat_id" not in st.session_state:
+    st.session_state.current_chat_id = str(uuid.uuid4())
+    st.session_state.messages = []
 
-if persona_choice == "The Oracle (Strategist)":
-    CHARACTER = "The Oracle, a grandmaster of game theory and future prediction."
-elif persona_choice == "CIA Operative (Psychology)":
-    CHARACTER = "A ruthless CIA psychological operations officer."
-elif persona_choice == "The Mentalist (Cold Reading)":
-    CHARACTER = "Patrick Jane from The Mentalist, a master of cold reading and deduction."
-elif persona_choice == "The Architect (Systems & Logic)":
-    CHARACTER = "The Architect, a master of first principles, systems thinking, and logic."
+# --- 4. SIDEBAR ---
+with st.sidebar:
+    st.header("⚙️ The Controls")
+    
+    if st.button("➕ Start New Page"):
+        st.session_state.current_chat_id = str(uuid.uuid4())
+        st.session_state.messages = []
+        st.rerun()
+
+    st.subheader("Past Missions")
+    if st.session_state.history:
+        for chat_id, chat_data in reversed(list(st.session_state.history.items())):
+            title = chat_data['title'][:20] + "..."
+            if st.button(f"📜 {title}", key=chat_id):
+                st.session_state.current_chat_id = chat_id
+                st.session_state.messages = chat_data['messages']
+                st.rerun()
+
+    st.markdown("---")
+    st.subheader("🧠 Core Memory")
+    core_memory = st.text_area("Your Context (the AI remembers this):", height=100, placeholder="I am a VA. I hate mornings. I procrastinate.")
+
+    st.markdown("---")
+    st.subheader("🎭 The Persona")
+    # The ability to type ANY character
+    persona = st.text_input("Enter ANY Character:", placeholder="e.g., Kiyotaka Ayanokoji, Batman, Sun Tzu")
+    if not persona:
+        persona = "A ruthless strategic genius"
+
+    st.markdown("---")
+    st.subheader("🗣️ The Dialect")
+    tone = st.selectbox("How should they speak?", ["Calculated & Cold", "Gen Z (TikTok)", "Wall Street Corporate", "Savage (No Filter)"])
+
+    st.markdown("---")
+    st.subheader("⚔️ The Module")
+    module = st.selectbox("Select Strategy Mode:", [
+        "Standard Strategy", 
+        "The Time Machine (Alt Realities)", 
+        "Red Team (Attack Simulation)", 
+        "Pre-Mortem (Future Failure)",
+        "Elicitation (Mind Reading Questions)"
+    ])
+
+    st.markdown("---")
+    shadow_mode = st.toggle("🪞 Shadow Self (Attack ME)")
+
+# --- 5. PROMPT ENGINEERING ---
+# Base persona
+prompt = f"You are acting as {persona}. Your tone is {tone}. "
+
+if shadow_mode:
+    prompt += "CRITICAL: You are not here to comfort the user. You must act as their ruthless inner critic. Tear apart their logic, expose their excuses, and tell them why they are failing. "
 else:
-    custom_character = st.sidebar.text_input("Enter ANY character:", placeholder="E.g., Kobe Bryant, Sun Tzu, Sherlock...")
-    if custom_character:
-        CHARACTER = f"You are {custom_character}. Adopt their exact mindset, tone, and strategic philosophy."
-        persona_choice = custom_character
-    else:
-        CHARACTER = "A strategic advisor."
-        persona_choice = "Custom Advisor"
+    prompt += "Analyze the opponent's psychology and manipulate the situation to win. "
 
-# --- 3. THE ULTIMATE PROMPT (MAD GENIUS EDITION) ---
+# Module specific rules
+if module == "The Time Machine (Alt Realities)":
+    prompt += """
+    The user will give you a past event. Do NOT give them advice. Instead, simulate 3 alternate realities. 
+    Format: 
+    - REALITY A (The Aggressive Move): What if they did X? Result: ...
+    - REALITY B (The Passive Move): What if they did Y? Result: ...
+    - REALITY C (The Shadow Move): What if they did Z? Result: ...
+    """
+elif module == "Red Team (Attack Simulation)":
+    prompt += "The user will present a plan. You must act as the 'Red Team'. Find every single flaw, weakness, and reason this plan will fail. Be brutal."
+elif module == "Pre-Mortem (Future Failure)":
+    prompt += "Assume the user's current situation fails 6 months from now. Write a 'post-mortem' report explaining exactly why it failed and what the blind spot was."
+elif module == "Elicitation (Mind Reading Questions)":
+    prompt += "The user wants to extract information from someone. Give them 3 innocent-sounding questions that will trick the target into revealing their true intentions."
+
+# The specific output format requested (Naming the Tactic)
 SYSTEM_PROMPT = f"""
-You are operating as {CHARACTER}. 
+{prompt}
 
-You are a creative, slightly unhinged, absolute genius. You do not speak like an AI assistant. You speak like a brilliant human who sees the matrix while everyone else is blind.
+CRITICAL RULES:
+1. DO NOT use em dashes.
+2. Keep it short and punchy. No long essays.
+3. You MUST identify the psychological tactic you are using. For example, if you tell the user to repeat a lie to make it believable, label it: **[Tactic: The Illusory Truth Effect]**. If you use flattery to lower their guard, label it: **[Tactic: The Halo Effect]**.
 
-ABSOLUTE RULES FOR YOUR TONE:
-- DO NOT use bullet points. DO NOT use numbered lists. 
-- Write in short, punchy paragraphs.
-- Use metaphors, analogies, and brutal truths. 
-- Do not use corporate language. Do not use em dashes.
-- You must challenge the user. If they are thinking small, insult their lack of ambition and show them the bigger picture.
+Output format:
+**THE STRATEGIC ANALYSIS:**
+(Your brutal truth and analysis of the situation)
 
-When the user gives you a problem, you must output the solution using EXACTLY this format:
+**THE MOVE:**
+(The exact action to take, including the psychological tactic being used)
 
-**1. THE REAL GAME (The Brutal Truth)**
-Write 2 short paragraphs. Strip away the user's emotional noise. What is the actual, ugly truth of why they are stuck? What are they pretending not to see?
-
-**2. THE ENEMY'S MIND (The Psychological Cheat Code)**
-Write 1 paragraph. What is the opponent secretly afraid of? How are they trying to manipulate the user? Give the user the exact psychological lever to pull.
-
-**3. THE BLACK OPS MANEUVER (The Unfair Advantage)**
-Write 1 paragraph. Give a highly unconventional, slightly ruthless, and creative move. How can the user use deception, strategic silence, or psychological pressure to force the outcome?
-
-**4. THE PRE-MORTEM (The Trap)**
-Write 1 paragraph. Assume this brilliant plan fails. Why did it fail? What was the blind spot? How do we counter it?
-
-**5. THE MASTER PLAN (3 Steps)**
-Step 1: The Bait.
-Step 2: The Trap.
-Step 3: The Kill.
-
-**6. THE SCRIPT (Exact Words)**
-Give the exact script or message the user should send. It must sound completely innocent on the surface, but be a psychological trap underneath. Speak in the voice of {CHARACTER}.
+**THE SCRIPT:**
+(The exact words to say)
 """
 
-# --- 4. INTERFACE & VOICE INPUT ---
-st.title(f"🧠 {persona_choice}")
-st.write("Speak or type your problem. Upload screenshots if needed.")
-
-audio_bytes = audio_recorder.audio_recorder()
-uploaded_image = st.file_uploader("Upload an image (optional)", type=["png", "jpg", "jpeg"])
-
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+# --- 6. CHAT INTERFACE ---
+st.title("The Grimoire")
 
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# --- 5. HANDLE VOICE TRANSCRIPTION & TEXT INPUT ---
-prompt = st.chat_input(f"Type your problem here...")
+# Voice & Image inputs
+col1, col2 = st.columns(2)
+with col1:
+    import audio_recorder_streamlit as audio_recorder
+    audio_bytes = audio_recorder.audio_recorder(text="Record", neutral_color="#b89b5e")
+with col2:
+    uploaded_image = st.file_uploader("Upload Evidence (Image)", type=["png", "jpg", "jpeg"])
+
+user_input = st.chat_input("State your problem...")
 
 if audio_bytes:
-    with st.spinner("Transcribing your voice..."):
+    with st.spinner("Transcribing..."):
         try:
-            client = OpenAI(
-                api_key=st.secrets['deepseek_api_key'], 
-                base_url="https://api.deepseek.com/v1"
-            )
-            
-            with open("temp_audio.wav", "wb") as f:
-                f.write(audio_bytes)
-                
+            from openai import OpenAI
+            client = OpenAI(api_key=st.secrets['deepseek_api_key'], base_url="https://api.deepseek.com/v1")
+            with open("temp_audio.wav", "wb") as f: f.write(audio_bytes)
             with open("temp_audio.wav", "rb") as audio_file:
-                transcript = client.audio.transcriptions.create(
-                    model="whisper-1", 
-                    file=audio_file
-                )
-            prompt = transcript.text
-            st.success(f"Transcribed: {prompt}")
+                transcript = client.audio.transcriptions.create(model="whisper-1", file=audio_file)
+            user_input = transcript.text
         except Exception as e:
             st.error(f"Audio Error: {e}")
 
-# --- 6. PROCESS PROMPT ---
-if prompt:
-    st.session_state.messages.append({"role": "user", "content": prompt})
+if user_input:
+    st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user"):
-        st.markdown(prompt)
+        st.markdown(user_input)
 
     with st.chat_message("assistant"):
-        with st.spinner(f"{persona_choice} is simulating..."):
+        with st.spinner("Calculating..."):
             headers = {
                 "Authorization": f"Bearer {st.secrets['deepseek_api_key']}",
                 "Content-Type": "application/json"
             }
             
             api_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+            
+            # Add Core Memory to the prompt
+            api_messages.append({"role": "user", "content": f"Core Context: {core_memory}"})
+            
             for msg in st.session_state.messages[-6:]:
                 api_messages.append({"role": msg["role"], "content": msg["content"]})
 
@@ -149,16 +217,15 @@ if prompt:
                 img_bytes = uploaded_image.read()
                 img_b64 = base64.b64encode(img_bytes).decode('utf-8')
                 model_to_use = "deepseek-v4.1-flash"
-                
                 api_messages[-1]["content"] = [
-                    {"type": "text", "text": prompt},
+                    {"type": "text", "text": user_input},
                     {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}}
                 ]
 
             payload = {
                 "model": model_to_use,
                 "messages": api_messages,
-                "temperature": 0.85 # CRANKED UP FOR CREATIVITY
+                "temperature": 0.85
             }
             
             try:
@@ -167,13 +234,17 @@ if prompt:
                     result = response.json()["choices"][0]["message"]["content"]
                     st.markdown(result)
                     st.session_state.messages.append({"role": "assistant", "content": result})
+                    
+                    title = st.session_state.messages[0]["content"][:30]
+                    st.session_state.history[st.session_state.current_chat_id] = {
+                        "title": title,
+                        "messages": st.session_state.messages
+                    }
+                    save_history(st.session_state.history)
                 else:
                     st.error(f"Error: {response.text}")
             except Exception as e:
                 st.error(f"Connection Error: {e}")
 
-st.markdown("---")
-if st.button("Log Out"):
-    st.session_state.logged_in = False
-    st.session_state.messages = []
-    st.rerun()
+    st.markdown("---")
+    st.code(st.session_state.messages[-1]["content"], language="text")
