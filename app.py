@@ -95,7 +95,6 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("🎭 The Persona")
-    # The ability to type ANY character
     persona = st.text_input("Enter ANY Character:", placeholder="e.g., Kiyotaka Ayanokoji, Batman, Sun Tzu")
     if not persona:
         persona = "A ruthless strategic genius"
@@ -142,14 +141,14 @@ elif module == "Pre-Mortem (Future Failure)":
 elif module == "Elicitation (Mind Reading Questions)":
     prompt += "The user wants to extract information from someone. Give them 3 innocent-sounding questions that will trick the target into revealing their true intentions."
 
-# The specific output format requested (Naming the Tactic)
+# The specific output format requested (Naming the Tactic & Evidence)
 SYSTEM_PROMPT = f"""
 {prompt}
 
 CRITICAL RULES:
 1. DO NOT use em dashes.
 2. Keep it short and punchy. No long essays.
-3. You MUST identify the psychological tactic you are using. For example, if you tell the user to repeat a lie to make it believable, label it: **[Tactic: The Illusory Truth Effect]**. If you use flattery to lower their guard, label it: **[Tactic: The Halo Effect]**.
+3. You MUST identify the psychological tactic and provide real-world evidence.
 
 Output format:
 **THE STRATEGIC ANALYSIS:**
@@ -157,6 +156,10 @@ Output format:
 
 **THE MOVE:**
 (The exact action to take, including the psychological tactic being used)
+
+**📚 THE EVIDENCE:**
+- **The Experiment:** (Name a real scientific study or psychological theory that proves this works, e.g., "The Asch Conformity Experiments," "The Milgram Experiment," "Pavlovian Conditioning").
+- **The Real-World Usage:** (Explain how a famous figure or company uses this, e.g., "Elon Musk uses this when he...," "Steve Jobs used this during the iPhone launch," "Casinos use this to keep people gambling").
 
 **THE SCRIPT:**
 (The exact words to say)
