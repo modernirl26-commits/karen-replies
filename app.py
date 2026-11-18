@@ -1,10 +1,9 @@
 import streamlit as st
 import requests
-import base64
 
-st.set_page_config(page_title="The Strategist", layout="centered")
+st.set_page_config(page_title="Comment Sniper", layout="centered")
 
-# --- LOGIN ---
+# --- 1. LOGIN ---
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
@@ -19,86 +18,89 @@ if not st.session_state.logged_in:
             st.error("Wrong password")
     st.stop()
 
-# --- SIDEBAR ---
-with st.sidebar:
-    st.header("Context")
-    core_memory = st.text_area("Tell the AI about yourself:", height=150, placeholder="I am a BBA grad in India. I am scared of AI. I want to buy bikes.")
+# --- 2. THE INTERFACE ---
+st.title("🎯 Comment Sniper")
+st.write("Paste the post, your prompt, and let the AI simulate before it writes.")
 
-# --- INTERFACE ---
-st.title("🧠 The Strategist")
-st.write("Ask a complex question. The AI will use DeepSeek's deepest reasoning model to answer.")
+# Inputs
+post_text = st.text_area("1. Paste the LinkedIn Post:", height=150)
+user_prompt = st.text_area("2. Paste your exact commenting prompt/rules:", height=150, placeholder="E.g., Write a first-person comment. Be casual. Use a personal story...")
 
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-
-uploaded_image = st.file_uploader("Upload Image (Optional)", type=["png", "jpg", "jpeg"])
-prompt = st.chat_input("Ask your question...")
-
-if prompt:
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    with st.chat_message("assistant"):
-        with st.spinner("Thinking deeply..."):
+if st.button("Generate Comment"):
+    if not post_text or not user_prompt:
+        st.warning("Please paste both the post and your prompt.")
+    else:
+        # STEP 1: THE ANALYST
+        with st.spinner("Step 1: Analyzing post context..."):
             headers = {
                 "Authorization": f"Bearer {st.secrets['deepseek_api_key']}",
                 "Content-Type": "application/json"
             }
             
-            # The NEW, clean prompt. No templates. Just pure intelligence.
-            SYSTEM_PROMPT = f"""
-            You are an elite strategic thinker, combining the intelligence of a top-tier business consultant, a psychologist, and a tech expert.
+            analyst_prompt = "You are a social media analyst. Read this post and extract: 1. The core message. 2. The tone (e.g., professional, emotional, funny). 3. The perfect angle for a reply. Do not write the reply yet."
             
-            Here is the user's context: {core_memory}
+            payload1 = {
+                "model": "deepseek-chat",
+                "messages": [
+                    {"role": "system", "content": analyst_prompt},
+                    {"role": "user", "content": post_text}
+                ],
+                "temperature": 0.3
+            }
             
-            Your goal is to give the user a genuinely brilliant, highly creative, and deeply nuanced answer. 
+            res1 = requests.post("https://api.deepseek.com/chat/completions", json=payload1, headers=headers)
+            analysis = res1.json()["choices"][0]["message"]["content"]
+
+        # STEP 2: THE STRATEGIST
+        with st.spinner("Step 2: Strategizing the perfect human response..."):
+            strategist_prompt = f"You are a master ghostwriter. Based on this analysis: '{analysis}', and the user's rules: '{user_prompt}', what is the strategy for the comment? How do we make it sound 100% human and avoid AI cliches? Do not write the comment yet."
             
-            RULES:
-            1. Do NOT use a template. Answer naturally.
-            2. Do NOT use em dashes (—).
-            3. Think outside the box. Do not give generic advice like "do an MBA" or "learn coding." Give them highly specific, unconventional paths they haven't thought of.
-            4. If you are asked about the future or AI, be realistic but highly strategic.
+            payload2 = {
+                "model": "deepseek-chat",
+                "messages": [
+                    {"role": "system", "content": strategist_prompt},
+                    {"role": "user", "content": f"Post: {post_text}\n\nUser Rules: {user_prompt}"}
+                ],
+                "temperature": 0.5
+            }
+            
+            res2 = requests.post("https://api.deepseek.com/chat/completions", json=payload2, headers=headers)
+            strategy = res2.json()["choices"][0]["message"]["content"]
+
+        # STEP 3: THE GHOSTWRITER
+        with st.spinner("Step 3: Writing and refining the final comment..."):
+            writer_prompt = f"""
+            You are an expert ghostwriter. Write the final comment based on these inputs:
+            - Post Context: {post_text}
+            - User's Rules: {user_prompt}
+            - Strategy: {strategy}
+            
+            CRITICAL RULES:
+            1. Output ONLY the comment. No intro, no outro, no "Here is the comment".
+            2. Do not use em dashes. Do not use bullet points unless asked.
+            3. Ensure it sounds like a real human typing on their phone.
             """
             
-            model_to_use = "deepseek-reasoner"
-            
-            if uploaded_image is not None:
-                img_bytes = uploaded_image.read()
-                img_b64 = base64.b64encode(img_bytes).decode('utf-8')
-                model_to_use = "deepseek-v4.1-flash"
-                
-                api_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-                for msg in st.session_state.messages[-4:]:
-                    if msg["role"] != "assistant" or msg == st.session_state.messages[-1]:
-                         api_messages.append({"role": msg["role"], "content": msg["content"]})
-                         
-                api_messages[-1]["content"] = [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}}
-                ]
-            else:
-                api_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-                for msg in st.session_state.messages[-4:]:
-                    api_messages.append({"role": msg["role"], "content": msg["content"]})
-
-            payload = {
-                "model": model_to_use,
-                "messages": api_messages,
+            payload3 = {
+                "model": "deepseek-reasoner", # Using the deep thinking model for the final output
+                "messages": [
+                    {"role": "system", "content": writer_prompt}
+                ],
                 "temperature": 0.7
             }
             
-            try:
-                response = requests.post("https://api.deepseek.com/chat/completions", json=payload, headers=headers)
-                if response.status_code == 200:
-                    result = response.json()["choices"][0]["message"]["content"]
-                    st.markdown(result)
-                    st.session_state.messages.append({"role": "assistant", "content": result})
-                else:
-                    st.error(f"Error: {response.text}")
-            except Exception as e:
-                st.error(f"Connection Error: {e}")
+            res3 = requests.post("https://api.deepseek.com/chat/completions", json=payload3, headers=headers)
+            final_comment = res3.json()["choices"][0]["message"]["content"]
+
+            # --- DISPLAY WITH COPY BUTTON ---
+            st.success("Comment Generated!")
+            
+            # Streamlit's st.code() creates a built-in copy button!
+            st.code(final_comment, language="text")
+            
+            # Bonus: Show the thinking process in an expander
+            with st.expander("See how the AI thought (The Analysis & Strategy)"):
+                st.write("**Step 1: Analysis**")
+                st.write(analysis)
+                st.write("**Step 2: Strategy**")
+                st.write(strategy)
