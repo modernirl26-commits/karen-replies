@@ -79,4 +79,4 @@ if st.button("Audit Comment"):
             st.markdown(result)
 
 st.markdown("---")
-st.write("💡 **Tip:** If the score is below 8, copy the text from "THE FIX" section and use that instead.")
+st.write('💡 **Tip:** If the score is below 8, copy the text from the "THE FIX" section and use that instead.')
