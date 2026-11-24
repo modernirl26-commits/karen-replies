@@ -1,7 +1,7 @@
 import streamlit as st
 import requests
 
-st.set_page_config(page_title="Comment Sniper", layout="centered")
+st.set_page_config(page_title="LinkedIn Safe Commenter", layout="centered")
 
 # --- 1. LOGIN ---
 if "logged_in" not in st.session_state:
@@ -18,89 +18,70 @@ if not st.session_state.logged_in:
             st.error("Wrong password")
     st.stop()
 
-# --- 2. THE INTERFACE ---
-st.title("🎯 Comment Sniper")
-st.write("Paste the post, your prompt, and let the AI simulate before it writes.")
+# --- 2. THE CORE FUNCTION ---
+def call_ai(system_prompt, user_prompt, temp=0.7):
+    headers = {
+        "Authorization": f"Bearer {st.secrets['deepseek_api_key']}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "deepseek-chat", # Using the fast model to save money, but the prompts make it smart
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        "temperature": temp
+    }
+    try:
+        res = requests.post("https://api.deepseek.com/chat/completions", json=payload, headers=headers)
+        return res.json()["choices"][0]["message"]["content"]
+    except Exception as e:
+        return f"Error: {e}"
 
-# Inputs
-post_text = st.text_area("1. Paste the LinkedIn Post:", height=150)
-user_prompt = st.text_area("2. Paste your exact commenting prompt/rules:", height=150, placeholder="E.g., Write a first-person comment. Be casual. Use a personal story...")
+# --- 3. THE INTERFACE ---
+st.title("🛡️ LinkedIn Ghostwriter")
+st.write("Paste the post. Get a comment that bypasses LinkedIn's AI filters.")
 
-if st.button("Generate Comment"):
-    if not post_text or not user_prompt:
-        st.warning("Please paste both the post and your prompt.")
+# Your exact prompt for Anshuma
+ANSHUMA_PROMPT = """
+You write LinkedIn comments as Anshuma, a warm executive coach. 
+FIRST, read the post twice and find the buried thing: what did the writer feel but not say out loud? What's the real story under the obvious details? Write for THAT, never the surface. 
+Then give me 1 comment that is STRAIGHT — say the buried true thing, plain and warm. 35-40 words. Vary sentence length. One longer, one short. Never two even lines. No 'not this, but that' flips. No dashes. Contractions on. Don't repeat the post back. React to what's under it.
+"""
+
+post_text = st.text_area("Paste the LinkedIn Post here:", height=250)
+
+if st.button("Generate Safe Comment"):
+    if not post_text:
+        st.warning("Please paste a post first.")
     else:
-        # STEP 1: THE ANALYST
-        with st.spinner("Step 1: Analyzing post context..."):
-            headers = {
-                "Authorization": f"Bearer {st.secrets['deepseek_api_key']}",
-                "Content-Type": "application/json"
-            }
-            
-            analyst_prompt = "You are a social media analyst. Read this post and extract: 1. The core message. 2. The tone (e.g., professional, emotional, funny). 3. The perfect angle for a reply. Do not write the reply yet."
-            
-            payload1 = {
-                "model": "deepseek-chat",
-                "messages": [
-                    {"role": "system", "content": analyst_prompt},
-                    {"role": "user", "content": post_text}
-                ],
-                "temperature": 0.3
-            }
-            
-            res1 = requests.post("https://api.deepseek.com/chat/completions", json=payload1, headers=headers)
-            analysis = res1.json()["choices"][0]["message"]["content"]
+        # --- STEP 1: THE GHOSTWRITER ---
+        with st.spinner("Finding the buried truth..."):
+            draft = call_ai(ANSHUMA_PROMPT, f"POST: {post_text}", 0.7)
 
-        # STEP 2: THE STRATEGIST
-        with st.spinner("Step 2: Strategizing the perfect human response..."):
-            strategist_prompt = f"You are a master ghostwriter. Based on this analysis: '{analysis}', and the user's rules: '{user_prompt}', what is the strategy for the comment? How do we make it sound 100% human and avoid AI cliches? Do not write the comment yet."
-            
-            payload2 = {
-                "model": "deepseek-chat",
-                "messages": [
-                    {"role": "system", "content": strategist_prompt},
-                    {"role": "user", "content": f"Post: {post_text}\n\nUser Rules: {user_prompt}"}
-                ],
-                "temperature": 0.5
-            }
-            
-            res2 = requests.post("https://api.deepseek.com/chat/completions", json=payload2, headers=headers)
-            strategy = res2.json()["choices"][0]["message"]["content"]
-
-        # STEP 3: THE GHOSTWRITER
-        with st.spinner("Step 3: Writing and refining the final comment..."):
-            writer_prompt = f"""
-            You are an expert ghostwriter. Write the final comment based on these inputs:
-            - Post Context: {post_text}
-            - User's Rules: {user_prompt}
-            - Strategy: {strategy}
+        # --- STEP 2: THE HUMANIZER (LINKEDIN SHIELD) ---
+        with st.spinner("Scrubbing AI fingerprints..."):
+            humanizer_prompt = f"""
+            You are an anti-AI detection expert. Your job is to rewrite this comment so it passes LinkedIn's strict 2026 filters.
             
             CRITICAL RULES:
-            1. Output ONLY the comment. No intro, no outro, no "Here is the comment".
-            2. Do not use em dashes. Do not use bullet points unless asked.
-            3. Ensure it sounds like a real human typing on their phone.
+            1. DELETE ALL EM DASHES (—) and replace with a comma or period.
+            2. BAN THESE WORDS: "resonate", "nuance", "testament", "delve", "landscape", "pivotal", "foster", "seamless", "journey".
+            3. BAN the "It's not X, it's Y" structure (e.g., "It's not about the money, it's about the value").
+            4. Make the grammar slightly imperfect. Start one sentence with "And" or "But". Use a sentence fragment if it fits.
+            5. Keep it casual, like you are typing fast on a phone.
+            6. Do NOT change the core meaning. Output ONLY the rewritten comment.
+            
+            Draft to scrub:
+            {draft}
             """
-            
-            payload3 = {
-                "model": "deepseek-reasoner", # Using the deep thinking model for the final output
-                "messages": [
-                    {"role": "system", "content": writer_prompt}
-                ],
-                "temperature": 0.7
-            }
-            
-            res3 = requests.post("https://api.deepseek.com/chat/completions", json=payload3, headers=headers)
-            final_comment = res3.json()["choices"][0]["message"]["content"]
+            final_comment = call_ai(humanizer_prompt, "Scrub this comment.", 0.5)
 
-            # --- DISPLAY WITH COPY BUTTON ---
-            st.success("Comment Generated!")
+            # --- STEP 3: THE OUTPUT ---
+            st.success("Here is your LinkedIn-safe comment:")
             
-            # Streamlit's st.code() creates a built-in copy button!
-            st.code(final_comment, language="text")
+            # st.code creates a box with a Copy button in the top right
+            st.code(final_comment.strip(), language="text")
             
-            # Bonus: Show the thinking process in an expander
-            with st.expander("See how the AI thought (The Analysis & Strategy)"):
-                st.write("**Step 1: Analysis**")
-                st.write(analysis)
-                st.write("**Step 2: Strategy**")
-                st.write(strategy)
+            with st.expander("See the AI's first draft (Before scrubbing)"):
+                st.write(draft)
