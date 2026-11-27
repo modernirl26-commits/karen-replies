@@ -1,12 +1,21 @@
 import streamlit as st
 import requests
 
-st.set_page_config(page_title="LinkedIn Sentinel", layout="centered")
+st.set_page_config(page_title="Deep Thinker", page_icon="🧠", layout="wide")
 
-# --- 1. LOGIN ---
+# --- 1. PREMIUM CSS ---
+st.markdown("""
+    <style>
+    .stApp { background-color: #0b0e14; color: #d1d5db; font-family: 'Inter', sans-serif; }
+    .stChatMessage { background-color: transparent; border: none; padding: 1.5rem; max-width: 800px; margin: 0 auto; }
+    .stChatMessage[data-testid="stChatMessageUser"] { background-color: #11151c; border-radius: 12px; }
+    .stChatInput { background-color: #1f2937; color: #f9fafb; border-radius: 12px; }
+    </style>
+""", unsafe_allow_html=True)
+
+# --- 2. LOGIN ---
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
-
 if not st.session_state.logged_in:
     st.title("🔒 Secure Login")
     pwd = st.text_input("Enter Password", type="password")
@@ -18,65 +27,77 @@ if not st.session_state.logged_in:
             st.error("Wrong password")
     st.stop()
 
-# --- 2. THE AUDITOR BRAIN ---
-def call_ai(system_prompt, user_prompt, temp=0.3):
+# --- 3. THE COGNITIVE ENGINE ---
+def call_thinker(user_prompt):
     headers = {
         "Authorization": f"Bearer {st.secrets['deepseek_api_key']}",
         "Content-Type": "application/json"
     }
+    
+    # The "NoteGPT" System Prompt forces deep reasoning
+    system_prompt = """
+    You are an elite, highly intelligent AI assistant (like Claude 3.5 Sonnet or NoteGPT). 
+    You do not give shallow answers. You think deeply before you speak.
+
+    Here is your cognitive process:
+    1. First, analyze the user's underlying intent. What are they ACTUALLY asking for?
+    2. Then, structure your thoughts. Break the problem down logically.
+    3. Finally, deliver the answer in a clear, incredibly smart, and nuanced way.
+
+    Rules:
+    - Do NOT use em dashes (—).
+    - Do NOT use AI filler words (delve, testament, landscape).
+    - Be direct, warm, and profound.
+    """
+    
+    api_messages = [{"role": "system", "content": system_prompt}]
+    # Include chat history for memory
+    for msg in st.session_state.messages[-6:]:
+        api_messages.append({"role": msg["role"], "content": msg["content"]})
+        
     payload = {
-        "model": "deepseek-chat", 
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
-        "temperature": temp
+        "model": "deepseek-reasoner", # <--- THE SMART MODEL
+        "messages": api_messages,
+        "temperature": 0.7
     }
+    
     try:
         res = requests.post("https://api.deepseek.com/chat/completions", json=payload, headers=headers)
-        return res.json()["choices"][0]["message"]["content"]
+        data = res.json()["choices"][0]["message"]
+        
+        # deepseek-reasoner returns a "reasoning_content" (the thoughts) and "content" (the answer)
+        thoughts = data.get("reasoning_content", "")
+        final_answer = data.get("content", "")
+        return thoughts, final_answer
     except Exception as e:
-        return f"Error: {e}"
+        return "", f"Error: {e}"
 
-# --- 3. THE INTERFACE ---
-st.title("🛡️ LinkedIn Sentinel")
-st.write("Paste a comment below. The AI will audit it against LinkedIn's 2026 AI-detection filters.")
+# --- 4. THE INTERFACE ---
+st.title("🧠 Deep Thinker")
+st.write("This AI uses the `deepseek-reasoner` model. It thinks deeply before answering.")
 
-comment_to_test = st.text_area("Paste the Comment:", height=200)
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-if st.button("Audit Comment"):
-    if not comment_to_test:
-        st.warning("Please paste a comment first.")
-    else:
-        with st.spinner("Running risk analysis..."):
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+if prompt := st.chat_input("Ask a deep question..."):
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    with st.chat_message("assistant"):
+        with st.spinner("Thinking deeply... (This takes 15-20 seconds)"):
+            thoughts, response = call_thinker(prompt)
             
-            auditor_prompt = """
-            You are a ruthless LinkedIn risk-control auditor. Your job is to analyze a draft comment and predict if LinkedIn's 2026 algorithm will flag it as "AI-generated slop" and hide it in the "Most Recent" tab.
-
-            Here are the rules of the 2026 LinkedIn algorithm:
-            1. It HATES em dashes (—).
-            2. It HATES perfect grammar. It wants human messiness (lowercase, fragments, casual fillers like 'fr', 'lol', 'honestly').
-            3. It flags "AI words" (delve, testament, nuance, underneath, journey).
-            4. It penalizes comments that just validate the post without adding a concrete, specific detail.
-            5. It flags the "It's not X, it's Y" structure.
-
-            Analyze the comment provided by the user. Output EXACTLY in this format:
-
-            **RISK SCORE:** [Give a score from 1 to 10. 10 means it will absolutely pass and be seen. 1 means it will be hidden instantly.]
-
-            **THE RED FLAGS:**
-            [List the exact words, punctuation, or structures in the comment that will trigger the algorithm. If there are none, say "None".]
-
-            **THE VERDICT:**
-            [A 2-sentence explanation of why it will pass or fail.]
-
-            **THE FIX:**
-            [If the score is below 8, rewrite the comment to be 100% safe. Make it messy, lowercase, human, and remove all AI tells. If it's already an 8+, just say "No changes needed."]
-            """
+            # Show the final answer
+            st.markdown(response)
             
-            result = call_ai(auditor_prompt, f"Here is the comment to audit:\n\n{comment_to_test}", 0.3)
-            
-            st.markdown(result)
-
-st.markdown("---")
-st.write('💡 **Tip:** If the score is below 8, copy the text from the "THE FIX" section and use that instead.')
+            # Put the "Brain" (thought process) in an expander
+            if thoughts:
+                with st.expander("🧠 See the AI's thought process"):
+                    st.write(thoughts)
+                    
+            st.session_state.messages.append({"role": "assistant", "content": response})
